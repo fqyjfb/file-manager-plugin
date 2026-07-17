@@ -1,6 +1,6 @@
 {
   "name": "plugin-file-manager",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "文件管理工具，支持浏览系统文件、收藏常用路径、拖拽复制文件",
   "main": "dist/index.js",
   "type": "module",

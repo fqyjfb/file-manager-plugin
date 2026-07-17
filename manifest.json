@@ -1,7 +1,7 @@
 {
   "id": "plugin-file-manager",
   "name": "文件管理",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "文件管理工具，支持浏览系统文件、收藏常用路径、拖拽复制文件",
   "author": "ToolBox Team",
   "entry": "dist/index.js",
