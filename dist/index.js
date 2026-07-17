@@ -1180,4 +1180,4 @@
   module.exports = {
     register: registerPlugin
   };
-})(window.React, window.React, window.ReactDOM, window.lucideReact);
+})(window.React, window.React, window.ReactDOM, window.LucideReact);
