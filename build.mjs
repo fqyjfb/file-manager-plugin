@@ -8,29 +8,17 @@ async function runBuild() {
   await build({
     root: __dirname,
     build: {
-      lib: {
-        entry: path.resolve(__dirname, 'src/index.tsx'),
-        name: 'FileManagerPlugin',
-        formats: ['iife'],
-        fileName: () => 'index.js'
-      },
       outDir: path.resolve(__dirname, 'dist'),
       emptyOutDir: true,
-      minify: false,
+      minify: true,
       rollupOptions: {
-        external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client'],
+        input: path.resolve(__dirname, 'src/index.tsx'),
         output: { 
-          globals: { 
-            react: 'window.React', 
-            'react-dom': 'window.ReactDOM', 
-            'react/jsx-runtime': 'window.React',
-            'react-dom/client': 'window.ReactDOM'
-          } 
+          dir: path.resolve(__dirname, 'dist'),
+          format: 'iife',
+          entryFileNames: 'index.js'
         }
       }
-    },
-    resolve: {
-      dedupe: ['react', 'react-dom'],
     }
   });
   console.log("Build complete: dist/index.js generated.");
