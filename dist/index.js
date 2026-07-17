@@ -1153,31 +1153,8 @@
     }
     ReactDOM.createRoot(root).render(/* @__PURE__ */ jsxRuntime.jsx(PluginApp, {}));
   }
-  function registerPlugin(api) {
-    const { registerTool, registerSidebarButton, openPluginWindow } = api;
-    registerTool({
-      id: "plugin-file-manager",
-      name: "文件管理",
-      iconName: "Folder",
-      color: "#059669",
-      textColor: "#ffffff",
-      path: "/tools/plugin-file-manager",
-      component: ToolPanel
-    });
-    registerSidebarButton({
-      id: "plugin-file-manager-btn",
-      icon: "Folder",
-      label: "文件管理",
-      onClick: () => {
-        openPluginWindow == null ? void 0 : openPluginWindow("plugin-file-manager");
-      }
-    });
-  }
   const pluginData = window.__PLUGIN_DATA__;
   if (pluginData) {
     renderStandalone();
   }
-  module.exports = {
-    register: registerPlugin
-  };
 })(window.React, window.React, window.ReactDOM, window.LucideReact);
