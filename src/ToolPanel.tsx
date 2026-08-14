@@ -969,7 +969,7 @@ const ToolPanel: React.FC = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9 pr-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none w-64 text-gray-800 dark:text-gray-200"
-                  style={{ outline: `2px solid ${PRIMARY_COLOR}` }}
+                  style={{ outline: `1px solid ${PRIMARY_COLOR}` }}
                 />
               </div>
             </div>
