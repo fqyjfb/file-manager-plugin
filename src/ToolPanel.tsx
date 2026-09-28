@@ -22,7 +22,7 @@ import {
   FileJson,
   Presentation,
   BookOpen,
-  FileX,
+  Lightbulb,
 } from 'lucide-react';
 
 interface FileItem {
@@ -49,22 +49,14 @@ interface PathConfig {
 
 interface ContextMenuItem {
   id: string;
-  label: string;
+  label?: string;
   icon?: React.ReactNode;
   onClick?: () => void;
   className?: string;
   divider?: boolean;
 }
 
-const TOAST_STORAGE_KEY = 'file-manager-toast';
 const WIDTHS_STORAGE_KEY = 'file-manager-widths';
-
-const PRIMARY_COLOR = '#059669';
-const TEXT_PRIMARY = '#111827';
-const TEXT_SECONDARY = '#6b7280';
-const TEXT_TERTIARY = '#9ca3af';
-const ERROR_COLOR = '#dc2626';
-const BG_TERTIARY = '#f3f4f6';
 
 const ToastContainer: React.FC<{ toasts: { id: number; type: 'success' | 'error' | 'warning'; message: string }[]; removeToast: (id: number) => void }> = ({ toasts, removeToast }) => {
   return (
@@ -89,6 +81,44 @@ const ToastContainer: React.FC<{ toasts: { id: number; type: 'success' | 'error'
           from { opacity: 0; transform: translateX(100%); }
           to { opacity: 1; transform: translateX(0); }
         }
+
+        /* 左右侧栏：保留滚轮/触摸板滚动能力，隐藏滚动条 */
+        .scrollbar-hidden {
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        .scrollbar-hidden::-webkit-scrollbar {
+          display: none;
+        }
+
+        /* 中间文件区：5px 细滚动条，颜色随明暗主题切换 */
+        .file-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: #d1d5db transparent;
+        }
+        .file-scroll::-webkit-scrollbar {
+          width: 5px;
+          height: 5px;
+        }
+        .file-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .file-scroll::-webkit-scrollbar-thumb {
+          background-color: #d1d5db;
+          border-radius: 3px;
+        }
+        .file-scroll::-webkit-scrollbar-thumb:hover {
+          background-color: #9ca3af;
+        }
+        .dark .file-scroll {
+          scrollbar-color: #4b5563 transparent;
+        }
+        .dark .file-scroll::-webkit-scrollbar-thumb {
+          background-color: #4b5563;
+        }
+        .dark .file-scroll::-webkit-scrollbar-thumb:hover {
+          background-color: #6b7280;
+        }
       `}</style>
     </div>
   );
@@ -106,21 +136,20 @@ const Modal: React.FC<{ title: string; isOpen: boolean; onClose: () => void; onC
             onClick={onClose}
             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
           >
-            <X className="w-5 h-5 text-gray-500" />
+            <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           </button>
         </div>
         <div className="p-4">{children}</div>
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
             取消
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 text-sm hover:opacity-90 rounded-lg transition-colors"
-            style={{ backgroundColor: PRIMARY_COLOR, color: '#ffffff' }}
+            className="px-4 py-2 text-sm bg-primary text-white hover:bg-primary/90 rounded-lg transition-colors"
           >
             确认
           </button>
@@ -171,7 +200,7 @@ const ContextMenu: React.FC<{ isOpen: boolean; x: number; y: number; items: Cont
               item.onClick?.();
               onClose();
             }}
-            className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+            className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
               item.className || ''
             }`}
           >
@@ -205,19 +234,19 @@ const ConfirmDialog: React.FC<{ isOpen: boolean; onClose: () => void; onConfirm:
             onClick={onClose}
             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
           >
-            <X className="w-5 h-5 text-gray-500" />
+            <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           </button>
         </div>
         <div className="p-4">
           <p className="text-gray-600 dark:text-gray-400">{message}</p>
           {deleteItemName && (
-            <p className="text-sm text-gray-500 dark:text-gray-500 mt-2 font-mono">{deleteItemName}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 font-mono">{deleteItemName}</p>
           )}
         </div>
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
             {cancelText}
           </button>
@@ -356,11 +385,8 @@ const FileGridItem: React.FC<{ item: FileItem; isDragging: boolean; onClick: () 
     >
       <div className="flex items-center justify-center mb-2">
         {item.isDirectory ? (
-          <div
-            className="w-12 h-12 flex items-center justify-center rounded-lg transition-colors"
-            style={{ backgroundColor: `${PRIMARY_COLOR}1A` }}
-          >
-            <Folder className="w-6 h-6" style={{ color: PRIMARY_COLOR }} />
+          <div className="w-12 h-12 flex items-center justify-center bg-primary/10 rounded-lg transition-colors">
+            <Folder className="w-6 h-6 text-primary" />
           </div>
         ) : (
           <div className="w-12 h-12 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-lg">
@@ -368,8 +394,8 @@ const FileGridItem: React.FC<{ item: FileItem; isDragging: boolean; onClick: () 
           </div>
         )}
       </div>
-      <div className="text-xs text-center truncate mb-1" style={{ color: TEXT_PRIMARY }}>{item.name}</div>
-      <div className="text-xs text-center" style={{ color: TEXT_TERTIARY }}>{item.isDirectory ? '文件夹' : formatSize(item.size)}</div>
+      <div className="text-xs text-center truncate mb-1 text-gray-800 dark:text-gray-200">{item.name}</div>
+      <div className="text-xs text-center text-gray-400 dark:text-gray-500">{item.isDirectory ? '文件夹' : formatSize(item.size)}</div>
     </div>
   );
 };
@@ -399,10 +425,6 @@ const ToolPanel: React.FC = () => {
 
   const allSelected = useMemo(() => {
     return Object.values(selectedTypes).every((v) => v);
-  }, [selectedTypes]);
-
-  const someSelected = useMemo(() => {
-    return Object.values(selectedTypes).some((v) => v);
   }, [selectedTypes]);
 
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
@@ -878,7 +900,7 @@ const ToolPanel: React.FC = () => {
       label: '删除',
       icon: <Trash2 className="w-4 h-4" />,
       onClick: () => selectedFileItem && deleteItem(selectedFileItem),
-      className: 'text-red-500',
+      className: 'text-red-500 dark:text-red-400',
     });
 
     return items;
@@ -900,7 +922,7 @@ const ToolPanel: React.FC = () => {
         label: '移除',
         icon: <X className="w-4 h-4" />,
         onClick: () => selectedFavoriteItem && removeFromFavorites(selectedFavoriteItem.path),
-        className: 'text-red-500',
+        className: 'text-red-500 dark:text-red-400',
       },
     ];
   };
@@ -921,7 +943,7 @@ const ToolPanel: React.FC = () => {
         label: '删除路径',
         icon: <Trash2 className="w-4 h-4" />,
         onClick: () => selectedTargetPath && deleteTargetPath(selectedTargetPath.id),
-        className: 'text-red-500',
+        className: 'text-red-500 dark:text-red-400',
       },
     ];
   };
@@ -953,7 +975,7 @@ const ToolPanel: React.FC = () => {
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="返回上级"
               >
-                <ArrowLeft className="w-5 h-5" />
+                <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-300" />
               </button>
               <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-2 rounded-lg">
                 <FolderOpen className="w-4 h-4" />
@@ -962,14 +984,13 @@ const ToolPanel: React.FC = () => {
             </div>
             <div className="flex items-center gap-3">
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: TEXT_TERTIARY }} />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
                 <input
                   type="text"
                   placeholder="搜索文件..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 pr-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none w-64 text-gray-800 dark:text-gray-200"
-                  style={{ outline: `1px solid ${PRIMARY_COLOR}` }}
+                  className="pl-9 pr-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary w-64 text-gray-800 dark:text-gray-200"
                 />
               </div>
             </div>
@@ -1002,10 +1023,10 @@ const ToolPanel: React.FC = () => {
                 </button>
               </div>
             </div>
-            <div className="flex-1 overflow-auto p-2">
+            <div className="flex-1 overflow-auto p-2 scrollbar-hidden">
               {displayedFavorites.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-32 text-gray-500 dark:text-gray-400">
-                  <Folder className="w-10 h-10 mb-2 opacity-50" />
+                  <Folder className="w-10 h-10 mb-2 text-gray-300 dark:text-gray-600" />
                   <p className="text-sm">暂无{activeTab === 'system' ? '系统路径' : '常用路径'}</p>
                 </div>
               ) : (
@@ -1015,23 +1036,22 @@ const ToolPanel: React.FC = () => {
                       <button
                         onClick={() => navigateToPath(item.path)}
                         onContextMenu={(e) => handleFavoriteContextMenu(e, item)}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-left group"
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-left group"
                       >
-                        {item.icon === 'desktop' && <Home className="w-5 h-5 flex-shrink-0" style={{ color: PRIMARY_COLOR }} />}
-                        {item.icon === 'drive' && <HardDrive className="w-5 h-5 flex-shrink-0" style={{ color: PRIMARY_COLOR }} />}
-                        {!item.icon && <Folder className="w-5 h-5 flex-shrink-0" style={{ color: TEXT_SECONDARY }} />}
-                        <span className="flex-1 truncate" style={{ color: TEXT_PRIMARY }}>{item.name}</span>
+                        {item.icon === 'desktop' && <Home className="w-5 h-5 flex-shrink-0 text-primary" />}
+                        {item.icon === 'drive' && <HardDrive className="w-5 h-5 flex-shrink-0 text-primary" />}
+                        {!item.icon && <Folder className="w-5 h-5 flex-shrink-0 text-gray-500 dark:text-gray-400" />}
+                        <span className="flex-1 truncate text-gray-800 dark:text-gray-200">{item.name}</span>
                         {!item.isSystem && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               removeFromFavorites(item.path);
                             }}
-                            className="p-1.5 opacity-0 group-hover:opacity-100 rounded transition-all"
-                            style={{ backgroundColor: `${ERROR_COLOR}1A` }}
+                            className="p-1.5 opacity-0 group-hover:opacity-100 rounded transition-all bg-red-50 dark:bg-red-900/30 text-gray-400 hover:text-red-500 dark:hover:text-red-400"
                             title="移除"
                           >
-                            <Trash2 className="w-4 h-4" style={{ color: TEXT_TERTIARY }} />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         )}
                       </button>
@@ -1054,9 +1074,9 @@ const ToolPanel: React.FC = () => {
             <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <span className="text-xs font-bold uppercase tracking-widest" style={{ color: TEXT_TERTIARY }}>类型筛选</span>
+                  <span className="text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">类型筛选</span>
                   <div className="flex items-center gap-4">
-                    <label className={`flex items-center gap-1.5 cursor-pointer group ${allSelected ? '' : someSelected ? 'text-gray-500' : 'text-gray-400'}`} style={{ color: allSelected ? TEXT_PRIMARY : TEXT_TERTIARY }}>
+                    <label className={`flex items-center gap-1.5 cursor-pointer group ${allSelected ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`}>
                       <input
                         type="checkbox"
                         checked={allSelected}
@@ -1070,8 +1090,7 @@ const ToolPanel: React.FC = () => {
                             folder: newValue,
                           });
                         }}
-                        className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 cursor-pointer"
-                        style={{ color: PRIMARY_COLOR }}
+                        className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 cursor-pointer accent-primary"
                       />
                       <span className="text-xs font-medium">全选</span>
                     </label>
@@ -1083,13 +1102,12 @@ const ToolPanel: React.FC = () => {
                       { key: 'video', label: '视频', icon: <FileVideo className="w-3.5 h-3.5" /> },
                       { key: 'folder', label: '文件夹', icon: <Folder className="w-3.5 h-3.5" /> },
                     ].map(({ key, label, icon }) => (
-                      <label key={key} className={`flex items-center gap-1.5 cursor-pointer group ${selectedTypes[key] ? '' : 'text-gray-400'}`} style={{ color: selectedTypes[key] ? TEXT_PRIMARY : TEXT_TERTIARY }}>
+                      <label key={key} className={`flex items-center gap-1.5 cursor-pointer group ${selectedTypes[key] ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'}`}>
                         <input
                           type="checkbox"
                           checked={selectedTypes[key]}
                           onChange={() => setSelectedTypes((prev) => ({ ...prev, [key]: !prev[key] }))}
-                          className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 cursor-pointer"
-                          style={{ color: PRIMARY_COLOR }}
+                          className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 cursor-pointer accent-primary"
                         />
                         {icon}
                         <span className="text-xs font-medium">{label}</span>
@@ -1097,18 +1115,18 @@ const ToolPanel: React.FC = () => {
                     ))}
                   </div>
                 </div>
-                <span className="text-xs" style={{ color: TEXT_TERTIARY }}>({filteredFiles.length} 个项目)</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">({filteredFiles.length} 个项目)</span>
               </div>
             </div>
-            <div className="flex-1 overflow-auto p-3">
+            <div className="flex-1 overflow-auto p-3 file-scroll">
               {loading ? (
-                <div className="flex flex-col items-center justify-center h-full" style={{ color: TEXT_TERTIARY }}>
+                <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
                   <LoadingSpinner size="md" />
                   <p className="mt-3 text-sm">加载中...</p>
                 </div>
               ) : filteredFiles.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full" style={{ color: TEXT_TERTIARY }}>
-                  <Folder className="w-16 h-16 mb-4 opacity-30" />
+                <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
+                  <Folder className="w-16 h-16 mb-4 text-gray-300 dark:text-gray-600" />
                   {searchQuery && <p className="text-sm">未找到匹配 "{searchQuery}" 的文件</p>}
                   {!searchQuery && Object.values(selectedTypes).every((v) => !v) && <p className="text-sm">请至少选择一种文件类型</p>}
                   {!searchQuery && Object.values(selectedTypes).some((v) => v) && <p className="text-base">文件夹为空</p>}
@@ -1143,18 +1161,18 @@ const ToolPanel: React.FC = () => {
           <div style={{ width: rightPanelWidth }} className="flex-shrink-0 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50 dark:bg-gray-900">
             <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center">
               <div className="flex items-center justify-between w-full">
-                <span className="text-xs font-bold uppercase tracking-widest" style={{ color: TEXT_TERTIARY }}>目标路径</span>
-                <button onClick={() => setShowAddPathModal(true)} className="p-1 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors" title="添加路径">
+                <span className="text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">目标路径</span>
+                <button onClick={() => setShowAddPathModal(true)} className="p-1 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-lg transition-colors" title="添加路径">
                   <Plus className="w-3 h-3" />
                 </button>
               </div>
             </div>
-            <div className="flex-1 overflow-auto p-3">
+            <div className="flex-1 overflow-auto p-3 scrollbar-hidden">
               {targetPaths.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full" style={{ color: TEXT_TERTIARY }}>
-                  <Settings className="w-14 h-14 mb-4 opacity-30" />
+                <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
+                  <Settings className="w-14 h-14 mb-4 text-gray-300 dark:text-gray-600" />
                   <p className="text-sm">暂无目标路径</p>
-                  <button onClick={() => setShowAddPathModal(true)} className="mt-3 text-sm hover:underline" style={{ color: PRIMARY_COLOR }}>添加第一个路径</button>
+                  <button onClick={() => setShowAddPathModal(true)} className="mt-3 text-sm text-primary hover:underline">添加第一个路径</button>
                   <p className="text-xs mt-2 opacity-75">拖拽文件到路径卡片即可复制</p>
                 </div>
               ) : (
@@ -1162,38 +1180,37 @@ const ToolPanel: React.FC = () => {
                   {targetPaths.map((path) => (
                     <div
                       key={path.id}
-                      className={`p-3 bg-white dark:bg-gray-800 border rounded-lg transition-all cursor-pointer ${draggedItem ? '' : 'border-gray-200 dark:border-gray-700'}`}
-                      style={{ borderColor: draggedItem ? `${PRIMARY_COLOR}80` : undefined }}
+                      className={`p-3 bg-white dark:bg-gray-800 border rounded-lg transition-all cursor-pointer ${draggedItem ? 'border-primary/50' : 'border-gray-200 dark:border-gray-700'}`}
                       onClick={() => openTargetPath(path.path)}
                       onContextMenu={(e) => handleTargetContextMenu(e, path)}
                       onDragOver={(e) => {
                         e.preventDefault();
-                        e.currentTarget.style.borderColor = PRIMARY_COLOR;
+                        e.currentTarget.classList.add('!border-primary');
                       }}
                       onDragLeave={(e) => {
-                        e.currentTarget.style.borderColor = draggedItem ? `${PRIMARY_COLOR}80` : '';
+                        e.currentTarget.classList.remove('!border-primary');
                       }}
                       onDrop={(e) => {
-                        e.currentTarget.style.borderColor = draggedItem ? `${PRIMARY_COLOR}80` : '';
+                        e.currentTarget.classList.remove('!border-primary');
                         handleDropOnTarget(e, path.path, path.name);
                       }}
                     >
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <Folder className="w-5 h-5" style={{ color: PRIMARY_COLOR }} />
-                          <span className="font-medium" style={{ color: TEXT_PRIMARY }}>{path.name}</span>
+                          <Folder className="w-5 h-5 text-primary" />
+                          <span className="font-medium text-gray-800 dark:text-gray-200">{path.name}</span>
                         </div>
                         <div className="flex items-center gap-1">
-                          <button onClick={(e) => { e.stopPropagation(); openTargetPath(path.path); }} className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded" title="打开路径">
-                            <FolderOpen className="w-4 h-4" style={{ color: TEXT_TERTIARY }} />
+                          <button onClick={(e) => { e.stopPropagation(); openTargetPath(path.path); }} className="p-1.5 text-gray-500 dark:text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200 rounded" title="打开路径">
+                            <FolderOpen className="w-4 h-4" />
                           </button>
-                          <button onClick={(e) => { e.stopPropagation(); deleteTargetPath(path.id); }} className="p-1.5 rounded" style={{ backgroundColor: `${ERROR_COLOR}1A` }} title="删除路径">
-                            <Trash2 className="w-4 h-4" style={{ color: TEXT_TERTIARY }} />
+                          <button onClick={(e) => { e.stopPropagation(); deleteTargetPath(path.id); }} className="p-1.5 rounded bg-red-50 dark:bg-red-900/30 text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400" title="删除路径">
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
-                      <p className="text-xs truncate" style={{ color: TEXT_TERTIARY }}>{path.path}</p>
-                      <p className="text-xs mt-2 opacity-60 px-2 py-1 rounded" style={{ backgroundColor: BG_TERTIARY, color: TEXT_TERTIARY }}>↓ 拖拽文件到此处复制</p>
+                      <p className="text-xs truncate text-gray-400 dark:text-gray-500">{path.path}</p>
+                      <p className="text-xs mt-2 opacity-60 px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">↓ 拖拽文件到此处复制</p>
                     </div>
                   ))}
                 </div>
@@ -1203,8 +1220,8 @@ const ToolPanel: React.FC = () => {
         </div>
 
         <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-4 py-2 flex items-center justify-between">
-          <span className="text-sm" style={{ color: TEXT_TERTIARY }}>{status}</span>
-          <span className="text-xs opacity-75" style={{ color: TEXT_TERTIARY }}>提示: 双击打开文件，右键可进行更多操作</span>
+          <span className="text-sm text-gray-400 dark:text-gray-500">{status}</span>
+          <span className="text-xs opacity-75 text-gray-400 dark:text-gray-500">提示: 双击打开文件，右键可进行更多操作</span>
         </div>
       </div>
 
@@ -1224,29 +1241,28 @@ const ToolPanel: React.FC = () => {
       <Modal title="添加目标路径" isOpen={showAddPathModal} onClose={() => setShowAddPathModal(false)} onConfirm={handleAddTargetPath}>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: TEXT_PRIMARY }}>路径名称</label>
+            <label className="block text-sm font-medium mb-1.5 text-gray-800 dark:text-gray-200">路径名称</label>
             <input
               type="text"
               value={newPathName}
               onChange={(e) => setNewPathName(e.target.value)}
-              className="w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none text-gray-800 dark:text-gray-200"
-              style={{ outline: `2px solid ${PRIMARY_COLOR}` }}
+              className="w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-gray-800 dark:text-gray-200"
               placeholder="例如：下载文件夹"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1.5" style={{ color: TEXT_PRIMARY }}>路径地址</label>
+            <label className="block text-sm font-medium mb-1.5 text-gray-800 dark:text-gray-200">路径地址</label>
             <input
               type="text"
               value={newPathValue}
               onChange={(e) => setNewPathValue(e.target.value)}
-              className="w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none text-gray-800 dark:text-gray-200 font-mono text-sm"
-              style={{ outline: `2px solid ${PRIMARY_COLOR}` }}
+              className="w-full px-4 py-2.5 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:border-primary text-gray-800 dark:text-gray-200 font-mono text-sm"
               placeholder="C:\Users\...\Downloads"
             />
           </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded">
-            💡 提示: 目标路径用于快速复制文件，拖拽文件到右侧路径卡片即可完成复制
+          <div className="flex items-start gap-1.5 text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded">
+            <Lightbulb className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-500" />
+            <span>提示: 目标路径用于快速复制文件，拖拽文件到右侧路径卡片即可完成复制</span>
           </div>
         </div>
       </Modal>
