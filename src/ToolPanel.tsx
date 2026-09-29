@@ -23,6 +23,11 @@ import {
   Presentation,
   BookOpen,
   Lightbulb,
+  ChevronDown,
+  ChevronRight,
+  Check,
+  FolderPlus,
+  ExternalLink,
 } from 'lucide-react';
 
 interface FileItem {
@@ -38,6 +43,11 @@ interface FavoriteItem {
   path: string;
   icon: string;
   isSystem: boolean;
+}
+
+interface PathSegment {
+  name: string;
+  path: string;
 }
 
 interface PathConfig {
@@ -273,6 +283,64 @@ const formatSize = (bytes?: number) => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
+const appendSegment = (base: string, part: string, separator: string) =>
+  base === '' || base.endsWith(separator) ? `${base}${part}` : `${base}${separator}${part}`;
+
+const buildPathSegments = (targetPath: string): PathSegment[] => {
+  const trimmed = targetPath.trim();
+  if (!trimmed) return [];
+
+  const separator = trimmed.includes('\\') ? '\\' : '/';
+  const parts = trimmed.split(/[\\/]+/).filter(Boolean);
+  if (parts.length === 0) return [];
+
+  const segments: PathSegment[] = [];
+  let current = '';
+
+  const append = (name: string, path: string) => {
+    segments.push({ name, path });
+    current = path;
+  };
+
+  if (trimmed.startsWith('\\\\')) {
+    if (parts.length < 2) return [];
+    const root = `\\\\${parts[0]}\\${parts[1]}`;
+    append(root, root);
+    parts.slice(2).forEach((part) => append(part, appendSegment(current, part, separator)));
+    return segments;
+  }
+
+  if (/^[a-zA-Z]:$/.test(parts[0])) {
+    append(parts[0], `${parts[0]}\\`);
+    parts.slice(1).forEach((part) => append(part, appendSegment(current, part, separator)));
+    return segments;
+  }
+
+  const rootPrefix = /^[\\/]/.test(trimmed) ? separator : '';
+  parts.forEach((part, index) => {
+    const parent = index === 0 ? rootPrefix : current;
+    append(part, appendSegment(parent, part, separator));
+  });
+
+  return segments;
+};
+
+// DataTransfer 的 File 对象只在事件同步阶段可读，await 之后会被保护清空，
+// 因此先同步取出全部 File 与目录标识，再逐个解析真实路径
+const resolveDroppedFolderPaths = async (dataTransfer: DataTransfer): Promise<string[]> => {
+  const entries = Array.from(dataTransfer.items)
+    .filter((item) => item.kind === 'file')
+    .map((item) => ({ file: item.getAsFile(), isDirectory: item.webkitGetAsEntry?.()?.isDirectory === true }));
+
+  const folderPaths: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory || !entry.file) continue;
+    const folderPath = await window.electron?.getFileOrFolderPath?.(entry.file);
+    if (folderPath) folderPaths.push(folderPath);
+  }
+  return folderPaths;
+};
+
 const getFileIconType = (filename: string): string => {
   const ext = filename.split('.').pop()?.toLowerCase();
 
@@ -405,11 +473,13 @@ const ToolPanel: React.FC = () => {
   const [currentPath, setCurrentPath] = useState<string>('');
   const [fileList, setFileList] = useState<FileItem[]>([]);
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  const [systemPaths, setSystemPaths] = useState<FavoriteItem[]>([]);
   const [targetPaths, setTargetPaths] = useState<PathConfig[]>([]);
-  const [activeTab, setActiveTab] = useState<'system' | 'user'>('system');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('就绪');
   const [searchQuery, setSearchQuery] = useState('');
+  const [driveMenuOpen, setDriveMenuOpen] = useState(false);
+  const [favoritesDragActive, setFavoritesDragActive] = useState(false);
   const [showAddPathModal, setShowAddPathModal] = useState(false);
   const [newPathName, setNewPathName] = useState('');
   const [newPathValue, setNewPathValue] = useState('');
@@ -451,6 +521,8 @@ const ToolPanel: React.FC = () => {
   const [isDraggingLeft, setIsDraggingLeft] = useState(false);
   const [isDraggingRight, setIsDraggingRight] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const driveMenuRef = useRef<HTMLDivElement>(null);
+  const breadcrumbRef = useRef<HTMLDivElement>(null);
 
   const addToast = useCallback(({ type, message }: { type: 'success' | 'error' | 'warning'; message: string }) => {
     const id = Date.now();
@@ -460,50 +532,21 @@ const ToolPanel: React.FC = () => {
     }, 3000);
   }, []);
 
-  const initializeFileManager = useCallback(async () => {
+  const loadSystemPaths = useCallback(async (): Promise<FavoriteItem[]> => {
     try {
-      await loadSystemFavorites();
-      await loadUserFavorites();
-      await loadTargetPaths();
-
-      const desktopPath = await window.electron?.fileManager.getPath('desktop');
-      if (desktopPath) {
-        setCurrentPath(desktopPath);
-        await loadFiles(desktopPath);
-      }
-    } catch (error) {
-      console.error('初始化文件管理器失败:', error);
-      addToast({ type: 'error', message: '初始化文件管理器失败' });
-    }
-  }, [addToast]);
-
-  useEffect(() => {
-    localStorage.setItem(WIDTHS_STORAGE_KEY, JSON.stringify({ left: leftPanelWidth, right: rightPanelWidth }));
-  }, [leftPanelWidth, rightPanelWidth]);
-
-  useEffect(() => {
-    initializeFileManager();
-  }, [initializeFileManager]);
-
-  const loadSystemFavorites = useCallback(async () => {
-    try {
-      const systemPaths = await window.electron?.fileManager.getSystemPaths();
-      setFavorites((prev) => {
-        const filtered = prev.filter((f: FavoriteItem) => !f.isSystem);
-        return [...(systemPaths || []), ...filtered];
-      });
+      const paths = (await window.electron?.fileManager.getSystemPaths()) || [];
+      setSystemPaths(paths);
+      return paths;
     } catch (error) {
       console.error('加载系统路径失败:', error);
+      return [];
     }
   }, []);
 
   const loadUserFavorites = useCallback(async () => {
     try {
       const savedFavorites = await window.electron?.fileManager.getFavorites();
-      setFavorites((prev) => {
-        const system = prev.filter((f: FavoriteItem) => f.isSystem);
-        return [...system, ...(savedFavorites || [])];
-      });
+      setFavorites(savedFavorites || []);
     } catch (error) {
       console.error('加载用户收藏失败:', error);
     }
@@ -533,6 +576,31 @@ const ToolPanel: React.FC = () => {
       setLoading(false);
     }
   }, [addToast]);
+
+  const initializeFileManager = useCallback(async () => {
+    try {
+      const paths = await loadSystemPaths();
+      await loadUserFavorites();
+      await loadTargetPaths();
+
+      const desktopPath = paths.find((item) => item.icon === 'desktop')?.path;
+      if (desktopPath) {
+        setCurrentPath(desktopPath);
+        await loadFiles(desktopPath);
+      }
+    } catch (error) {
+      console.error('初始化文件管理器失败:', error);
+      addToast({ type: 'error', message: '初始化文件管理器失败' });
+    }
+  }, [addToast, loadSystemPaths, loadUserFavorites, loadTargetPaths, loadFiles]);
+
+  useEffect(() => {
+    localStorage.setItem(WIDTHS_STORAGE_KEY, JSON.stringify({ left: leftPanelWidth, right: rightPanelWidth }));
+  }, [leftPanelWidth, rightPanelWidth]);
+
+  useEffect(() => {
+    initializeFileManager();
+  }, [initializeFileManager]);
 
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
@@ -587,6 +655,19 @@ const ToolPanel: React.FC = () => {
     }
   }, [currentPath, navigateToPath]);
 
+  useEffect(() => {
+    if (!driveMenuOpen) return;
+
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (driveMenuRef.current && !driveMenuRef.current.contains(e.target as Node)) {
+        setDriveMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('click', handleOutsideClick);
+    return () => document.removeEventListener('click', handleOutsideClick);
+  }, [driveMenuOpen]);
+
   const openItem = useCallback(
     async (item: FileItem) => {
       if (item.isDirectory) {
@@ -605,23 +686,96 @@ const ToolPanel: React.FC = () => {
     [addToast, navigateToPath]
   );
 
-  const addToFavorites = useCallback(
-    async (item: FileItem) => {
-      if (!item.isDirectory) {
-        addToast({ type: 'warning', message: '仅支持收藏文件夹' });
-        return;
-      }
+  const addFavoriteFolder = useCallback(
+    async (folderPath: string, folderName?: string) => {
       try {
-        await window.electron?.fileManager.addFavorite(item.path, item.name);
+        await window.electron?.fileManager.addFavorite(folderPath, folderName);
         await loadUserFavorites();
-        addToast({ type: 'success', message: `已添加到常用: ${item.name}` });
-        setStatus(`已添加到常用: ${item.name}`);
+        const name = folderName || folderPath.split(/[\\/]+/).filter(Boolean).pop() || folderPath;
+        addToast({ type: 'success', message: `已添加到常用: ${name}` });
+        setStatus(`已添加到常用: ${name}`);
       } catch (error) {
         console.error('添加收藏失败:', error);
         addToast({ type: 'error', message: '添加收藏失败' });
       }
     },
     [addToast, loadUserFavorites]
+  );
+
+  const addToFavorites = useCallback(
+    async (item: FileItem) => {
+      if (!item.isDirectory) {
+        addToast({ type: 'warning', message: '仅支持收藏文件夹' });
+        return;
+      }
+      await addFavoriteFolder(item.path, item.name);
+    },
+    [addToast, addFavoriteFolder]
+  );
+
+  const addDirectoryByPicker = useCallback(async () => {
+    const folderPath = await window.electron?.selectFolder();
+    if (folderPath) {
+      await addFavoriteFolder(folderPath);
+    }
+  }, [addFavoriteFolder]);
+
+  const openItemLocation = useCallback(
+    async (targetPath: string) => {
+      try {
+        await window.electron?.fileManager.openFile(targetPath);
+        setStatus(`已打开位置: ${targetPath}`);
+      } catch (error) {
+        console.error('打开位置失败:', error);
+        addToast({ type: 'error', message: '打开位置失败' });
+      }
+    },
+    [addToast]
+  );
+
+  const handleFavoritesDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    setFavoritesDragActive(true);
+  }, []);
+
+  const handleFavoritesDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setFavoritesDragActive(false);
+  }, []);
+
+  const handleFavoritesDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setFavoritesDragActive(false);
+
+      // 从系统文件管理器拖入：按目录过滤后逐个添加
+      if (e.dataTransfer.types.includes('Files')) {
+        const folderPaths = await resolveDroppedFolderPaths(e.dataTransfer);
+        if (folderPaths.length === 0) {
+          addToast({ type: 'warning', message: '常用路径仅支持拖入文件夹' });
+          return;
+        }
+        for (const folderPath of folderPaths) {
+          await addFavoriteFolder(folderPath);
+        }
+        return;
+      }
+
+      // 从文件列表内部拖入
+      const draggedPath = e.dataTransfer.getData('text/plain');
+      const draggedFile = fileList.find((file) => file.path === draggedPath);
+      if (!draggedFile) return;
+
+      if (!draggedFile.isDirectory) {
+        addToast({ type: 'warning', message: '常用路径仅支持拖入文件夹' });
+        return;
+      }
+      await addFavoriteFolder(draggedFile.path, draggedFile.name);
+    },
+    [addToast, addFavoriteFolder, fileList]
   );
 
   const removeFromFavorites = useCallback(
@@ -777,7 +931,6 @@ const ToolPanel: React.FC = () => {
 
   const handleFavoriteContextMenu = useCallback(
     (e: React.MouseEvent, item: FavoriteItem) => {
-      if (item.isSystem) return;
       e.preventDefault();
       setContextMenuX(e.clientX);
       setContextMenuY(e.clientY);
@@ -860,11 +1013,53 @@ const ToolPanel: React.FC = () => {
     });
   }, [fileList, searchQuery, selectedTypes]);
 
-  const displayedFavorites = useMemo(() => {
-    return activeTab === 'system'
-      ? favorites.filter((f) => f.isSystem)
-      : favorites.filter((f) => !f.isSystem);
-  }, [favorites, activeTab]);
+  const drives = useMemo(() => systemPaths.filter((item) => item.icon === 'drive'), [systemPaths]);
+
+  const desktopPath = useMemo(
+    () => systemPaths.find((item) => item.icon === 'desktop')?.path || '',
+    [systemPaths]
+  );
+
+  const currentDrive = useMemo(() => {
+    if (drives.length === 0) return null;
+
+    const match = /^([a-zA-Z]:\\)/.exec(currentPath.replace(/\//g, '\\'));
+    if (!match) return drives[0];
+
+    return (
+      drives.find((drive) => drive.path.toUpperCase() === match[1].toUpperCase()) || {
+        name: match[1],
+        path: match[1],
+        icon: 'drive',
+        isSystem: true,
+      }
+    );
+  }, [drives, currentPath]);
+
+  const pathSegments = useMemo(() => {
+    const segments = buildPathSegments(currentPath);
+    return /^[a-zA-Z]:$/.test(segments[0]?.name || '') ? segments.slice(1) : segments;
+  }, [currentPath]);
+
+  const openDesktop = useCallback(async () => {
+    if (desktopPath) {
+      await navigateToPath(desktopPath);
+    }
+  }, [desktopPath, navigateToPath]);
+
+  const switchDrive = useCallback(
+    async (drivePath: string) => {
+      setDriveMenuOpen(false);
+      await navigateToPath(drivePath);
+    },
+    [navigateToPath]
+  );
+
+  useEffect(() => {
+    if (breadcrumbRef.current) {
+      breadcrumbRef.current.scrollLeft = breadcrumbRef.current.scrollWidth;
+    }
+  }, [pathSegments]);
 
   const getFileContextMenuItems = (): ContextMenuItem[] => {
     if (!selectedFileItem) return [];
@@ -911,17 +1106,23 @@ const ToolPanel: React.FC = () => {
 
     return [
       {
-        id: 'open',
-        label: '打开',
-        icon: <FolderOpen className="w-4 h-4" />,
-        onClick: () => selectedFavoriteItem && navigateToPath(selectedFavoriteItem.path),
+        id: 'add-directory',
+        label: '添加目录',
+        icon: <FolderPlus className="w-4 h-4" />,
+        onClick: () => void addDirectoryByPicker(),
       },
       { id: 'divider', divider: true },
+      {
+        id: 'open-location',
+        label: '打开位置',
+        icon: <ExternalLink className="w-4 h-4" />,
+        onClick: () => void openItemLocation(selectedFavoriteItem.path),
+      },
       {
         id: 'remove',
         label: '移除',
         icon: <X className="w-4 h-4" />,
-        onClick: () => selectedFavoriteItem && removeFromFavorites(selectedFavoriteItem.path),
+        onClick: () => removeFromFavorites(selectedFavoriteItem.path),
         className: 'text-red-500 dark:text-red-400',
       },
     ];
@@ -967,8 +1168,16 @@ const ToolPanel: React.FC = () => {
 
       <div className="flex flex-col h-full">
         <div className="border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between px-4 py-3">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between px-4 py-3 gap-4">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <button
+                onClick={openDesktop}
+                disabled={!desktopPath}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="桌面"
+              >
+                <Home className="w-5 h-5 text-primary" />
+              </button>
               <button
                 onClick={goBack}
                 disabled={!currentPath}
@@ -977,12 +1186,76 @@ const ToolPanel: React.FC = () => {
               >
                 <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-300" />
               </button>
-              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-2 rounded-lg">
-                <FolderOpen className="w-4 h-4" />
-                <span className="truncate max-w-md">{currentPath || '选择目录'}</span>
+
+              <div className="flex items-center gap-0.5 min-w-0 flex-1 text-sm">
+                <div className="relative flex-shrink-0" ref={driveMenuRef}>
+                  <button
+                    onClick={() => setDriveMenuOpen((prev) => !prev)}
+                    disabled={drives.length === 0}
+                    className={`flex items-center gap-1 px-1.5 py-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                      driveMenuOpen
+                        ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200'
+                    }`}
+                    title="切换磁盘"
+                  >
+                    <FolderOpen className="w-4 h-4 text-primary" />
+                    <span className="font-medium">{currentDrive ? currentDrive.name.replace(/\\$/, '') : '磁盘'}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${driveMenuOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {driveMenuOpen && (
+                    <div className="absolute left-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 z-50">
+                      {drives.map((drive) => (
+                        <button
+                          key={drive.path}
+                          onClick={() => switchDrive(drive.path)}
+                          className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left transition-colors ${
+                            currentDrive?.path === drive.path
+                              ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                              : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
+                          }`}
+                        >
+                          <HardDrive className="w-4 h-4 flex-shrink-0 text-primary" />
+                          <span className="flex-1 truncate">{drive.name.replace(/\\$/, '')}</span>
+                          {currentDrive?.path === drive.path && <Check className="w-4 h-4 flex-shrink-0 text-primary" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {pathSegments.length > 0 && <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 dark:text-gray-500" />}
+
+                <div ref={breadcrumbRef} className="flex items-center gap-0.5 min-w-0 overflow-x-auto scrollbar-hidden">
+                  {pathSegments.length === 0 ? (
+                    !currentPath && <span className="px-1.5 py-1 text-gray-400 dark:text-gray-500">选择目录</span>
+                  ) : (
+                    pathSegments.map((segment, index) => {
+                      const isLast = index === pathSegments.length - 1;
+                      return (
+                        <React.Fragment key={segment.path}>
+                          {index > 0 && <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400 dark:text-gray-500" />}
+                          <button
+                            onClick={() => navigateToPath(segment.path)}
+                            disabled={isLast}
+                            className={`px-1.5 py-1 rounded transition-colors truncate max-w-[180px] ${
+                              isLast
+                                ? 'text-gray-800 dark:text-gray-200 font-medium cursor-default'
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200'
+                            }`}
+                            title={segment.path}
+                          >
+                            {segment.name}
+                          </button>
+                        </React.Fragment>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-shrink-0">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
                 <input
@@ -1000,62 +1273,43 @@ const ToolPanel: React.FC = () => {
         <div ref={containerRef} className="flex flex-1 overflow-hidden">
           <div style={{ width: leftPanelWidth }} className="flex-shrink-0 border-r border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50 dark:bg-gray-900">
             <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center">
-              <div className="flex gap-1 w-full">
-                <button
-                  onClick={() => setActiveTab('system')}
-                  className={`flex-1 px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    activeTab === 'system'
-                      ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow-sm'
-                      : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                  }`}
-                >
-                  系统
-                </button>
-                <button
-                  onClick={() => setActiveTab('user')}
-                  className={`flex-1 px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    activeTab === 'user'
-                      ? 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow-sm'
-                      : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                  }`}
-                >
-                  常用
-                </button>
-              </div>
+              <span className="text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">常用路径</span>
             </div>
-            <div className="flex-1 overflow-auto p-2 scrollbar-hidden">
-              {displayedFavorites.length === 0 ? (
+            <div
+              className={`flex-1 overflow-auto p-2 scrollbar-hidden transition-colors ${
+                favoritesDragActive ? 'bg-primary/10 ring-1 ring-primary/50 rounded-lg' : ''
+              }`}
+              onDragOver={handleFavoritesDragOver}
+              onDragLeave={handleFavoritesDragLeave}
+              onDrop={(e) => void handleFavoritesDrop(e)}
+            >
+              {favorites.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-32 text-gray-500 dark:text-gray-400">
                   <Folder className="w-10 h-10 mb-2 text-gray-300 dark:text-gray-600" />
-                  <p className="text-sm">暂无{activeTab === 'system' ? '系统路径' : '常用路径'}</p>
+                  <p className="text-sm">拖入文件夹可添加到常用路径</p>
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {displayedFavorites.map((item, index) => (
-                    <div key={index}>
+                  {favorites.map((item) => (
+                    <button
+                      key={item.path}
+                      onClick={() => navigateToPath(item.path)}
+                      onContextMenu={(e) => handleFavoriteContextMenu(e, item)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-left group"
+                    >
+                      <Folder className="w-5 h-5 flex-shrink-0 text-primary" />
+                      <span className="flex-1 truncate text-gray-800 dark:text-gray-200">{item.name}</span>
                       <button
-                        onClick={() => navigateToPath(item.path)}
-                        onContextMenu={(e) => handleFavoriteContextMenu(e, item)}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors text-left group"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeFromFavorites(item.path);
+                        }}
+                        className="p-1.5 opacity-0 group-hover:opacity-100 rounded transition-all bg-red-50 dark:bg-red-900/30 text-gray-400 hover:text-red-500 dark:hover:text-red-400"
+                        title="移除"
                       >
-                        {item.icon === 'desktop' && <Home className="w-5 h-5 flex-shrink-0 text-primary" />}
-                        {item.icon === 'drive' && <HardDrive className="w-5 h-5 flex-shrink-0 text-primary" />}
-                        {!item.icon && <Folder className="w-5 h-5 flex-shrink-0 text-gray-500 dark:text-gray-400" />}
-                        <span className="flex-1 truncate text-gray-800 dark:text-gray-200">{item.name}</span>
-                        {!item.isSystem && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeFromFavorites(item.path);
-                            }}
-                            className="p-1.5 opacity-0 group-hover:opacity-100 rounded transition-all bg-red-50 dark:bg-red-900/30 text-gray-400 hover:text-red-500 dark:hover:text-red-400"
-                            title="移除"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                        <Trash2 className="w-4 h-4" />
                       </button>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
